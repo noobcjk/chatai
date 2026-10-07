@@ -1,0 +1,12 @@
+{
+  "pet.hit": {
+    "sounds": [
+      { "name": "chatai:hit", "stream": false }
+    ]
+  },
+  "pet.feed": {
+    "sounds": [
+      { "name": "chatai:feed", "stream": false }
+    ]
+  }
+}
