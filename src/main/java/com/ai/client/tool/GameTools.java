@@ -1,6 +1,7 @@
 package com.ai.client.tool;
 
 import com.ai.client.config.ChataiConfig;
+import com.ai.client.file.SdcardFiles;
 import com.ai.client.shell.RishShell;
 import com.ai.client.shell.TermuxRunner;
 import com.ai.client.skill.SkillRegistry;
@@ -77,6 +78,17 @@ public final class GameTools {
                         + "支持管道和重定向，可以用 Termux 里装好的工具（python、ffmpeg、nmap、curl 等），"
                         + "也能读写 Termux 自己的文件。一次只发一条命令，最多等 20 秒，长任务请自己在命令里加 timeout 或放后台。",
                 schema(props(jsonProp("command", "string", "要执行的 bash 命令，例如 whoami 或 python3 -c 'print(1)'")), "command"), true));
+        list.add(new ToolSpec("file",
+                "用 App 自己的权限直接读写外置存储 /sdcard 下的文件，不走 Shizuku / Termux，最稳定最快。"
+                        + "op 取值：list（列目录）、read（读文本）、write（覆盖写）、append（追加）、mkdir（建目录）、"
+                        + "delete（删文件或空目录）。path 可写 /sdcard/... 绝对路径，也可写相对 /sdcard 的路径；"
+                        + "只能操作 /sdcard 内的路径，读不了 /data/data/<其它应用> 和 /system。"
+                        + "游戏配置目录、技能目录、日志一般都在这下面，改配置或读日志优先用它。"
+                        + "write/append/mkdir/delete 会先让玩家确认，list/read 直接执行。",
+                schema(props(
+                        jsonProp("op", "string", "list / read / write / append / mkdir / delete"),
+                        jsonProp("path", "string", "文件或目录路径，例如 /sdcard/Download/a.txt 或 config/chatai.json"),
+                        jsonProp("content", "string", "write / append 要写入的文本，其它 op 忽略")), "op", "path"), false));
         if (!SkillRegistry.skills().isEmpty()) {
             list.add(new ToolSpec("load_skill",
                     "读取某个技能的完整说明正文；需要该技能的具体规则时再调用。",
@@ -88,13 +100,24 @@ public final class GameTools {
     /**
      * 该工具是否需要在执行前让玩家确认。
      *
-     * <p>{@code shell} 和 {@code termux} 的确认策略可以在设置界面切换（自动同意 / 确认后执行）。</p>
+     * <p>{@code shell}、{@code termux}，以及 {@code file} 里会改磁盘的 op，确认策略都可以在设置界面
+     * 切换（自动同意 / 确认后执行）；{@code file} 的 list / read 只读，永远直接执行。</p>
      */
-    public static boolean isDangerous(String name) {
+    public static boolean isDangerous(String name, JsonObject args) {
         if ("shell".equals(name) || "termux".equals(name)) {
             return !ChataiConfig.get().shellAutoApprove;
         }
+        if ("file".equals(name)) {
+            return fileWrites(stringArg(args, "op")) && !ChataiConfig.get().shellAutoApprove;
+        }
         return "run_command".equals(name);
+    }
+
+    /** {@code file} 工具里会改动磁盘的 op。 */
+    private static boolean fileWrites(String op) {
+        String action = op == null ? "" : op.trim().toLowerCase();
+        return "write".equals(action) || "append".equals(action)
+                || "mkdir".equals(action) || "delete".equals(action) || "rm".equals(action);
     }
 
     /** 给确认框展示的细节文本。 */
@@ -107,6 +130,16 @@ public final class GameTools {
         }
         if ("termux".equals(name)) {
             return "termux$ " + stringArg(args, "command");
+        }
+        if ("file".equals(name)) {
+            String op = stringArg(args, "op");
+            String text = "file " + op + " " + stringArg(args, "path");
+            String content = stringArg(args, "content");
+            if (fileWrites(op) && !content.isEmpty()) {
+                String preview = content.length() > 120 ? content.substring(0, 120) + "…" : content;
+                text = text + "\n" + preview;
+            }
+            return text;
         }
         return name;
     }
@@ -121,6 +154,7 @@ public final class GameTools {
                 case "run_command" -> onClient(() -> command(stringArg(args, "command")));
                 case "shell" -> shellTool(stringArg(args, "command"));
                 case "termux" -> termuxTool(stringArg(args, "command"));
+                case "file" -> fileTool(stringArg(args, "op"), stringArg(args, "path"), stringArg(args, "content"));
                 case "load_skill" -> skill(stringArg(args, "name"));
                 default -> ToolResult.error("未知工具：" + name);
             };
@@ -315,6 +349,13 @@ public final class GameTools {
         return result.ok()
                 ? ToolResult.ok(output)
                 : ToolResult.error("Termux 执行失败（" + result.note() + "）：\n" + output);
+    }
+
+    /** {@code file} 工具：直接用 App 权限读写 /sdcard，不经过 rish / Termux。 */
+    private static ToolResult fileTool(String op, String path, String content) {
+        SdcardFiles.Result result = SdcardFiles.run(op, path, content);
+        String text = result.text() == null ? "" : result.text().strip();
+        return result.ok() ? ToolResult.ok(text) : ToolResult.error(text);
     }
 
     /** shell 工具的白名单：配置里有就用配置的，否则用内置默认表。 */
