@@ -295,7 +295,7 @@ public class HttpAiService implements AiService {
     /** 危险工具先过确认桥，其它工具直接执行。 */
     private ToolResult executeTool(ToolCall call, ToolApprover approver) {
         JsonObject args = parseArgs(call.arguments());
-        if (GameTools.isDangerous(call.name())) {
+        if (GameTools.isDangerous(call.name(), args)) {
             if (approver == null) {
                 return ToolResult.error("该操作需要玩家确认，但当前没有确认界面，已拒绝执行。");
             }
