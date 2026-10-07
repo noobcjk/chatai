@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "chatai",
+	"version": "${version}",
+	"name": "Chat AI",
+	"description": "Press Z to open an in-game AI chat GUI, with a DSH balance pet in the bottom-left corner.",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/chatai/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.ai.Chatai"
+		],
+		"client": [
+			"com.ai.client.ChataiClient"
+		]
+	},
+	"mixins": [
+		"chatai.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
