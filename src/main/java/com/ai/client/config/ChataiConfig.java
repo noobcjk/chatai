@@ -94,6 +94,14 @@ public class ChataiConfig {
     public String termuxBash = "/data/data/com.termux/files/usr/bin/bash";
 
     /**
+     * 文件工作区：{@code file} 工具的相对路径以此为基准，且只能在该目录内读写。
+     *
+     * <p>默认 {@code /sdcard}（整张外置存储）；改成 {@code /sdcard/xxx} 可把 AI 限制在子目录里。
+     * 只能落在外置存储内，填成 {@code /} 之类会被回退到 {@code /sdcard}。</p>
+     */
+    public String workspace = "/sdcard";
+
+    /**
      * 是否把工具调用（{@code tools} 字段）发给模型。
      *
      * <p>开启后模型可以调用游戏查询 / 命令执行等工具，已启用技能的正文改为按需通过
@@ -120,6 +128,7 @@ public class ChataiConfig {
                 if (config != null) {
                     config.dropLegacyDefaults();
                     config.repairLists();
+                    config.ensureWorkspace();
                     config.ensureEffortValid();
                     return config;
                 }
@@ -151,6 +160,13 @@ public class ChataiConfig {
         }
         if (this.shellAllowlist == null) {
             this.shellAllowlist = new ArrayList<>();
+        }
+    }
+
+    /** 工作区留空时回退到 /sdcard。 */
+    private void ensureWorkspace() {
+        if (this.workspace == null || this.workspace.isBlank()) {
+            this.workspace = "/sdcard";
         }
     }
 
