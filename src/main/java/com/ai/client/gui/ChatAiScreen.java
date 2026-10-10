@@ -78,6 +78,9 @@ public class ChatAiScreen extends Screen {
     private static final int CODE_COPY_W = 14;
     private static final int CODE_COPY_H = 12;
     private static final int CODE_COPY_MARGIN = 2;
+    /** 模组真实执行过工具留下的记录行：单独配色 + 背景条，和模型自己说的话区分开。 */
+    private static final int TOOL_TEXT_COLOR = 0xFFE3C07A;
+    private static final int TOOL_BG = 0xFF2A2620;
     /** 摘要头行颜色（比正文淡一点的长绿）。 */
     private static final int SUMMARY_HEADER_COLOR = 0xFF9FD8B0;
     /** 展开后的摘要正文颜色。 */
@@ -702,7 +705,7 @@ public class ChatAiScreen extends Screen {
                     // 代码块：先铺一条与行等高的深色背景条
                     context.fill(this.viewX1, y, this.viewX2, y + line.height(), line.bgColor());
                 }
-                if (line.kind() == LineKind.CODE) {
+                if (line.kind() == LineKind.CODE || line.kind() == LineKind.TOOL) {
                     // 深色底上不描阴影，保持清晰
                     context.drawText(this.textRenderer, line.text(), this.viewX1, y, line.color(), false);
                 } else {
@@ -793,9 +796,10 @@ public class ChatAiScreen extends Screen {
         }
     }
 
-    /** 行类型：普通正文 / 可点击的「思考」头行 / 展开后的思考正文 / 代码块 / 摘要头行与正文。 */
+    /** 行类型：普通正文 / 工具执行记录 / 可点击的「思考」头行 / 展开后的思考正文 / 代码块 / 摘要头行与正文。 */
     private enum LineKind {
         TEXT,
+        TOOL,
         THINK_HEADER,
         THINK_BODY,
         CODE,
@@ -803,7 +807,7 @@ public class ChatAiScreen extends Screen {
         SUMMARY_BODY
     }
 
-    /** 一「行」显示单元；{@code bgColor} 非 0 时先铺一层同高背景条（代码块用）。 */
+    /** 一「行」显示单元；{@code bgColor} 非 0 时先铺一层同高背景条（代码块与工具记录用）。 */
     private record Line(OrderedText text, int color, int height, int messageIndex, LineKind kind, int bgColor) {
         Line(OrderedText text, int color, int height, int messageIndex, LineKind kind) {
             this(text, color, height, messageIndex, kind, 0);
@@ -909,12 +913,22 @@ public class ChatAiScreen extends Screen {
         lines.add(new Line(Text.empty().asOrderedText(), 0, MESSAGE_GAP, messageIndex, LineKind.TEXT));
     }
 
-    /** 正文按宽度自动换行后追加成若干显示行。 */
+    /** 正文按宽度自动换行后追加成若干显示行；工具记录行单独配色加底。 */
     private void addTextLines(List<Line> lines, String text, int color, int messageIndex,
                               int lineHeight, int width) {
-        for (OrderedText wrapped : this.textRenderer.wrapLines(Text.literal(text), width)) {
-            lines.add(new Line(wrapped, color, lineHeight, messageIndex, LineKind.TEXT));
+        for (String raw : text.split("\n", -1)) {
+            boolean tool = isToolTraceLine(raw);
+            int lineColor = tool ? TOOL_TEXT_COLOR : color;
+            for (OrderedText wrapped : this.textRenderer.wrapLines(Text.literal(raw), width)) {
+                lines.add(new Line(wrapped, lineColor, lineHeight, messageIndex,
+                        tool ? LineKind.TOOL : LineKind.TEXT, tool ? TOOL_BG : 0));
+            }
         }
+    }
+
+    /** 是否是工具执行记录行。模型自己编造的这种行也会被一并标出来，方便一眼分辨。 */
+    private static boolean isToolTraceLine(String line) {
+        return line.startsWith(HttpAiService.TOOL_TRACE_MARK);
     }
 
     /** 追加一个代码块：深色背景条；不自动换行，超宽按像素宽度硬折并保留原有缩进。 */

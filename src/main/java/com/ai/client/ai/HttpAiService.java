@@ -2,6 +2,7 @@ package com.ai.client.ai;
 
 import com.ai.Chatai;
 import com.ai.client.config.ChataiConfig;
+import com.ai.client.file.SdcardFiles;
 import com.ai.client.skill.SkillRegistry;
 import com.ai.client.tool.GameTools;
 import com.ai.client.tool.ToolApprover;
@@ -55,6 +56,17 @@ public class HttpAiService implements AiService {
     private static final int MAX_ECHO_LENGTH = 300;
     /** 最多带上多少条历史消息发给接口，避免上下文无限增长。 */
     private static final int MAX_CONTEXT_MESSAGES = 20;
+    /**
+     * 工具活动记录的行首标记，只给玩家看。
+     *
+     * <p>这些记录是本模组拼出来的「谁调用了什么、返回了什么」，回传给模型就等于递过去一个
+     * 可以照抄的模板——实测模型会直接用同样的格式编造调用与结果，看着像执行过，其实什么都没做。
+     * 所以发送前一律剔掉（见 {@link #stripToolTraces}）。</p>
+     */
+    public static final String TOOL_TRACE_MARK = "［工具］";
+    /** 识别出模型自己编造工具记录时，附在回复末尾的提醒。 */
+    private static final String FAKE_NOTE = "\n\n⚠ 上面那段调用记录是模型自己编的，本次没有真的执行工具，"
+            + "不要相信其中的结果。请重新明确要求它执行，或换一个支持工具调用的模型。";
 
     private final ChataiConfig config;
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -204,6 +216,10 @@ public class HttpAiService implements AiService {
         if (useTools) {
             appendBlock(system, "需要游戏内的实时信息（状态、背包、附近实体）或要执行操作时，"
                     + "请直接调用提供的工具，不要凭空猜测；执行操作前会由玩家确认。");
+            appendBlock(system, "工具的调用与结果只能由系统产生，你无法自行制造。没真正调用工具就"
+                    + "不要声称做过某事或给出结果；没有工具结果时如实说没做。");
+            appendBlock(system, "文件工作区：" + SdcardFiles.workspace()
+                    + "。file 工具的相对路径以此为基准，且只能访问该目录内的文件。");
         }
         appendBlock(system, skillsBlock(useTools));
         if (!isBlank(summary)) {
@@ -221,18 +237,29 @@ public class HttpAiService implements AiService {
         }
         for (int i = from; i < history.size(); i++) {
             ChatMessage message = history.get(i);
-            convo.add(messageNode(
-                    message.role() == ChatMessage.Role.USER ? "user" : "assistant",
-                    message.content()));
+            boolean user = message.role() == ChatMessage.Role.USER;
+            // 工具活动记录只给玩家看，回传给模型时剔掉：否则它会照抄这个格式，自己编造
+            // 「工具调用 + 执行结果」的文字（真有一条都没调就声称建好了目录）。
+            convo.add(messageNode(user ? "user" : "assistant",
+                    user ? message.content() : stripToolTraces(message.content())));
         }
 
         StringBuilder answer = new StringBuilder();
+        boolean faked = false;
         for (int round = 0; ; round++) {
             Outcome outcome = requestRound(convo, useTools ? specs : null, onDelta, onReasoning);
+            // 正文里冒出「工具」记录的行首标记，说明这不是真实调用，是模型自己写出来的
+            if (outcome.content.indexOf(TOOL_TRACE_MARK) >= 0) {
+                faked = true;
+                Chatai.LOGGER.warn("模型自行编造了工具执行记录（本轮实际调用 {} 个工具）", outcome.calls.size());
+            }
             answer.append(outcome.content);
             // 本轮若因接口拒绝 tools 而退回，后面也不再发
             useTools = useTools && !this.toolsRejected;
             if (outcome.calls.isEmpty() || !useTools || round + 1 >= GameTools.MAX_ROUNDS) {
+                if (faked) {
+                    answer.append(FAKE_NOTE);
+                }
                 return answer.toString();
             }
 
@@ -450,13 +477,37 @@ public class HttpAiService implements AiService {
 
     /** 工具活动提示，直接拼进回复里让玩家看到模型做了什么。 */
     private static String toolTrace(ToolCall call, ToolResult result) {
-        String head = "［工具］" + call.name();
+        String head = TOOL_TRACE_MARK + call.name();
         String args = call.arguments() == null ? "" : call.arguments().trim();
         if (!args.isEmpty() && !"{}".equals(args)) {
             head += " " + abbreviate(args);
         }
         String body = result.content() == null ? "" : result.content().replace('\n', ' ');
         return "\n" + head + " → " + abbreviate(body) + "\n";
+    }
+
+    /**
+     * 去掉助手消息里的工具活动记录，只保留模型自己写的正文。
+     *
+     * <p>记录由 {@link #toolTrace} 生成、以 {@link #TOOL_TRACE_MARK} 开头，占单独一行。打包上下文时
+     * 剔掉它们，模型就没有可照抄的格式，也就不会「假装调用了工具」。</p>
+     */
+    private static String stripToolTraces(String content) {
+        if (content == null || content.indexOf(TOOL_TRACE_MARK) < 0) {
+            return content;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String line : content.split("\n", -1)) {
+            if (line.startsWith(TOOL_TRACE_MARK)) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(line);
+        }
+        // 记录行前后各有一个空行，剔掉后会留下连续空行，压一下
+        return sb.toString().strip().replaceAll("\n{3,}", "\n\n");
     }
 
     private static boolean looksLikeToolsUnsupported(RuntimeException e) {

@@ -79,10 +79,10 @@ public final class GameTools {
                         + "也能读写 Termux 自己的文件。一次只发一条命令，最多等 20 秒，长任务请自己在命令里加 timeout 或放后台。",
                 schema(props(jsonProp("command", "string", "要执行的 bash 命令，例如 whoami 或 python3 -c 'print(1)'")), "command"), true));
         list.add(new ToolSpec("file",
-                "用 App 自己的权限直接读写外置存储 /sdcard 下的文件，不走 Shizuku / Termux，最稳定最快。"
+                "用 App 自己的权限直接读写工作区（默认 /sdcard）下的文件，不走 Shizuku / Termux，最稳定最快。"
                         + "op 取值：list（列目录）、read（读文本）、write（覆盖写）、append（追加）、mkdir（建目录）、"
-                        + "delete（删文件或空目录）。path 可写 /sdcard/... 绝对路径，也可写相对 /sdcard 的路径；"
-                        + "只能操作 /sdcard 内的路径，读不了 /data/data/<其它应用> 和 /system。"
+                        + "delete（删文件或空目录）。path 可写工作区内的绝对路径，也可写相对工作区的路径；"
+                        + "只能在工作区内读写（工作区可在设置里改），读不了 /data/data/<其它应用> 和 /system。"
                         + "游戏配置目录、技能目录、日志一般都在这下面，改配置或读日志优先用它。"
                         + "write/append/mkdir/delete 会先让玩家确认，list/read 直接执行。",
                 schema(props(
