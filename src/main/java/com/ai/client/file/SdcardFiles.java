@@ -69,6 +69,27 @@ public final class SdcardFiles {
     }
 
     /**
+     * 内部使用：按工作区规则解析路径后整读一个文本文件，不做 {@link #MAX_READ} 截断。
+     *
+     * <p>给需要拿到完整内容的调用方用（例如读取物品定义的 json）。超过 {@code maxBytes}
+     * 直接报错，避免把超大文件读进内存。</p>
+     */
+    public static String readText(String path, int maxBytes) throws IOException {
+        Path target = resolve(path);
+        if (!Files.exists(target)) {
+            throw new IOException("文件不存在：" + target);
+        }
+        if (Files.isDirectory(target)) {
+            throw new IOException(target + " 是目录。");
+        }
+        byte[] data = Files.readAllBytes(target);
+        if (data.length > maxBytes) {
+            throw new IOException("文件过大（" + data.length + " 字节，上限 " + maxBytes + "）");
+        }
+        return new String(data, StandardCharsets.UTF_8);
+    }
+
+    /**
      * 当前 App 对外置存储的实际权限，用来在失败时给出可操作的解释。
      */
     public static String capability() {

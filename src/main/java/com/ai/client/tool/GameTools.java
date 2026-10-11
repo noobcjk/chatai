@@ -2,6 +2,7 @@ package com.ai.client.tool;
 
 import com.ai.client.config.ChataiConfig;
 import com.ai.client.file.SdcardFiles;
+import com.ai.client.item.NbtItems;
 import com.ai.client.shell.RishShell;
 import com.ai.client.shell.TermuxRunner;
 import com.ai.client.skill.SkillRegistry;
@@ -89,6 +90,25 @@ public final class GameTools {
                         jsonProp("op", "string", "list / read / write / append / mkdir / delete"),
                         jsonProp("path", "string", "文件或目录路径，例如 /sdcard/Download/a.txt 或 config/chatai.json"),
                         jsonProp("content", "string", "write / append 要写入的文本，其它 op 忽略")), "op", "path"), false));
+        list.add(new ToolSpec("nbt_item",
+                "发放 / 读取 / 修改带数据组件的物品，只支持创造模式（走创造模式槽位包，不需要 op）。"
+                        + "1.21 起物品没有 NBT 了，nbt 参数这里填的是**组件** SNBT。"
+                        + "op 取值：read（读某槽位物品的 id、数量、组件）、"
+                        + "give（发放一件，需要 id 和 nbt）、"
+                        + "set（用给出的组件替换手持物品的组件）、"
+                        + "load（读取工作区里的 json 文件批量发放）。"
+                        + "id 是物品 id，如 minecraft:diamond_sword；count 是数量（默认 1）；"
+                        + "nbt 是组件 SNBT，如 {custom_name:'{\"text\":\"神剑\"}',enchantments:{sharpness:5}}；"
+                        + "slot 是背包槽位 0-35（0-8 是快捷栏，不写就自动找空位）。"
+                        + "load 的 path 是工作区内的 json 路径，文件格式见 nbt 物品技能；"
+                        + "json 里每一项为 {id, count, nbt, slot}。执行前会先让玩家确认。",
+                schema(props(
+                        jsonProp("op", "string", "read / give / set / load"),
+                        jsonProp("id", "string", "物品 id，例如 minecraft:diamond_sword（give 必填）"),
+                        jsonProp("count", "integer", "数量，默认 1"),
+                        jsonProp("nbt", "string", "组件 SNBT，例如 {custom_name:'{\"text\":\"神剑\"}'}"),
+                        jsonProp("slot", "integer", "背包槽位 0-35，不写自动找空位"),
+                        jsonProp("path", "string", "load 用的 json 文件路径，例如 items/swords.json")), "op"), true));
         if (!SkillRegistry.skills().isEmpty()) {
             list.add(new ToolSpec("load_skill",
                     "读取某个技能的完整说明正文；需要该技能的具体规则时再调用。",
@@ -109,6 +129,10 @@ public final class GameTools {
         }
         if ("file".equals(name)) {
             return fileWrites(stringArg(args, "op")) && !ChataiConfig.get().shellAutoApprove;
+        }
+        if ("nbt_item".equals(name)) {
+            // 只读的 read 不打扰玩家，其余都会改游戏状态，一律确认
+            return !"read".equals(stringArg(args, "op").trim().toLowerCase());
         }
         return "run_command".equals(name);
     }
@@ -141,6 +165,19 @@ public final class GameTools {
             }
             return text;
         }
+        if ("nbt_item".equals(name)) {
+            String op = stringArg(args, "op");
+            if ("load".equals(op.trim().toLowerCase())) {
+                return "nbt_item load " + stringArg(args, "path");
+            }
+            String text = "nbt_item " + op + " " + stringArg(args, "id");
+            String nbt = stringArg(args, "nbt");
+            if (!nbt.isEmpty()) {
+                String preview = nbt.length() > 120 ? nbt.substring(0, 120) + "…" : nbt;
+                text = text + "\n" + preview;
+            }
+            return text.trim();
+        }
         return name;
     }
 
@@ -155,6 +192,7 @@ public final class GameTools {
                 case "shell" -> shellTool(stringArg(args, "command"));
                 case "termux" -> termuxTool(stringArg(args, "command"));
                 case "file" -> fileTool(stringArg(args, "op"), stringArg(args, "path"), stringArg(args, "content"));
+                case "nbt_item" -> onClient(() -> nbtItem(args));
                 case "load_skill" -> skill(stringArg(args, "name"));
                 default -> ToolResult.error("未知工具：" + name);
             };
@@ -354,6 +392,19 @@ public final class GameTools {
     /** {@code file} 工具：直接用 App 权限读写 /sdcard，不经过 rish / Termux。 */
     private static ToolResult fileTool(String op, String path, String content) {
         SdcardFiles.Result result = SdcardFiles.run(op, path, content);
+        String text = result.text() == null ? "" : result.text().strip();
+        return result.ok() ? ToolResult.ok(text) : ToolResult.error(text);
+    }
+
+    /** {@code nbt_item} 工具：构造带 NBT 的物品并直接写进创造模式背包槽位。 */
+    private static ToolResult nbtItem(JsonObject args) {
+        NbtItems.Result result = NbtItems.run(
+                stringArg(args, "op"),
+                stringArg(args, "id"),
+                intArg(args, "count", 1),
+                stringArg(args, "nbt"),
+                intArg(args, "slot", NbtItems.AUTO_SLOT),
+                stringArg(args, "path"));
         String text = result.text() == null ? "" : result.text().strip();
         return result.ok() ? ToolResult.ok(text) : ToolResult.error(text);
     }
