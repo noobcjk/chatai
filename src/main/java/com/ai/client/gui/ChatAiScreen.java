@@ -139,6 +139,8 @@ public class ChatAiScreen extends Screen {
     private ButtonWidget compressButton;
     /** 打开技能面板。 */
     private ButtonWidget skillButton;
+    /** 打开「加载 NBT 物品」页。 */
+    private ButtonWidget nbtButton;
     private ReasoningEffortBar effortBar;
 
     private long openTime;
@@ -297,6 +299,12 @@ public class ChatAiScreen extends Screen {
                 .build();
         this.addDrawableChild(this.skillButton);
 
+        this.nbtButton = ButtonWidget.builder(Text.translatable("gui.chatai.nbt"),
+                        button -> MinecraftClient.getInstance().setScreen(new NbtLoadScreen(this)))
+                .dimensions(0, 0, SETTINGS_W, SETTINGS_H)
+                .build();
+        this.addDrawableChild(this.nbtButton);
+
         // 底部「模型 + 推理强度」控件，最后加入以便弹层绘制在其他控件之上
         this.effortBar = new ReasoningEffortBar(this.textRenderer, ChataiConfig.get());
         this.addDrawableChild(this.effortBar);
@@ -343,8 +351,9 @@ public class ChatAiScreen extends Screen {
         this.settingsButton.setPosition(PADDING, PADDING);
         this.petButton.setPosition(PADDING + SETTINGS_W + 4, PADDING);
         this.compressButton.setPosition(PADDING + (SETTINGS_W + 4) * 2, PADDING);
-        // 「技能」挪到「设置」正下方：并排第 4 个会压到右侧会话标题栏
+        // 「技能」「NBT」挪到「设置」正下方：并排第 4 个会压到右侧会话标题栏
         this.skillButton.setPosition(PADDING, PADDING + SETTINGS_H + 4);
+        this.nbtButton.setPosition(PADDING + SETTINGS_W + 4, PADDING + SETTINGS_H + 4);
 
         // —— 聊天列底部：输入框 / 发送 ——
         this.inputField.setX(ax);
@@ -379,6 +388,8 @@ public class ChatAiScreen extends Screen {
         updateCompressButton(ready);
         this.skillButton.visible = ready;
         this.skillButton.active = ready;
+        this.nbtButton.visible = ready;
+        this.nbtButton.active = ready;
         refreshSendButton();
     }
 

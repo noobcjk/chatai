@@ -3,7 +3,10 @@ package com.ai.client.skill;
 import com.ai.Chatai;
 import net.fabricmc.loader.api.FabricLoader;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -47,6 +50,10 @@ public final class SkillRegistry {
     }
 
     private static final String FILE_NAME = "SKILL.md";
+
+    /** 随 jar 一起发布的技能索引，每行一个相对于下面的前缀的路径。 */
+    private static final String BUNDLED_INDEX = "/assets/chatai/skills/index.txt";
+    private static final String BUNDLED_PREFIX = "/assets/chatai/skills/";
 
     private static List<Skill> skills = new ArrayList<>();
     private static boolean scanned;
@@ -99,8 +106,74 @@ public final class SkillRegistry {
                 Chatai.LOGGER.warn("扫描技能目录失败: {}", e.toString());
             }
         }
+        readBundled(found);
         found.sort(Comparator.comparing(Skill::name, String.CASE_INSENSITIVE_ORDER));
         skills = found;
+    }
+
+    /**
+     * 读取随 jar 发布的内置技能。
+     *
+     * <p>技能默认放在 config 目录里，用户不装就没有；内置技能走 classpath，
+     * 让 mod 自带的能力说明开箱就有。同名时以 config 目录里的那份为准。</p>
+     */
+    private static void readBundled(List<Skill> out) {
+        List<String> entries = new ArrayList<>();
+        try (InputStream index = SkillRegistry.class.getResourceAsStream(BUNDLED_INDEX)) {
+            if (index == null) {
+                return;
+            }
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(index, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String text = line.trim();
+                    if (!text.isEmpty() && !text.startsWith("#")) {
+                        entries.add(text);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            Chatai.LOGGER.warn("读取内置技能索引失败: {}", e.toString());
+            return;
+        }
+
+        for (String relative : entries) {
+            String resource = BUNDLED_PREFIX + relative;
+            try (InputStream stream = SkillRegistry.class.getResourceAsStream(resource)) {
+                if (stream == null) {
+                    Chatai.LOGGER.warn("内置技能资源缺失: {}", resource);
+                    continue;
+                }
+                Skill skill = parse(new String(stream.readAllBytes(), StandardCharsets.UTF_8),
+                        bundledName(relative), null);
+                if (skill != null && byNameIn(out, skill.name()) == null) {
+                    out.add(skill);
+                }
+            } catch (IOException e) {
+                Chatai.LOGGER.warn("读取内置技能失败 {}: {}", resource, e.toString());
+            }
+        }
+    }
+
+    private static Skill byNameIn(List<Skill> list, String name) {
+        for (Skill skill : list) {
+            if (skill.name().equalsIgnoreCase(name)) {
+                return skill;
+            }
+        }
+        return null;
+    }
+
+    /** 内置技能的兜底名：取 {@code <名字>/SKILL.md} 里的目录名，没有目录就用文件名。 */
+    private static String bundledName(String relative) {
+        String text = relative.replace('\\', '/');
+        int slash = text.lastIndexOf('/');
+        if (slash > 0) {
+            int prev = text.lastIndexOf('/', slash - 1);
+            return text.substring(prev + 1, slash);
+        }
+        return stripExtension(text);
     }
 
     /** 按名字查找技能；找不到返回 null。 */
@@ -134,7 +207,23 @@ public final class SkillRegistry {
             Chatai.LOGGER.warn("读取技能文件失败 {}: {}", file, e.toString());
             return;
         }
+        Skill skill = parse(raw, fallbackName, file);
+        if (skill == null) {
+            return;
+        }
+        String body = companionDir == null ? skill.body() : mergeCompanions(skill.body(), companionDir, file);
+        out.add(new Skill(skill.name(), skill.description(), body, file));
+    }
 
+    /**
+     * 解析技能文本：拆出 YAML frontmatter 里的名字与描述，其余作为正文。
+     *
+     * @param source 技能来源文件，内置技能没有文件传 {@code null}，仅用于登记
+     */
+    private static Skill parse(String raw, String fallbackName, Path source) {
+        if (raw == null) {
+            return null;
+        }
         String name = fallbackName;
         String description = "";
         String body = raw;
@@ -181,10 +270,7 @@ public final class SkillRegistry {
         if (description.isEmpty()) {
             description = "(无描述)";
         }
-        if (companionDir != null) {
-            body = mergeCompanions(body, companionDir, file);
-        }
-        out.add(new Skill(name, description, body, file));
+        return new Skill(name, description, body, source);
     }
 
     /**

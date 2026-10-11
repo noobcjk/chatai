@@ -1,0 +1,3 @@
+# 随 mod 一起发布的内置技能，每行一个相对本目录的路径。
+# 同名技能以 config/chatai/skills/ 下的那份为准。
+nbt-item/SKILL.md
